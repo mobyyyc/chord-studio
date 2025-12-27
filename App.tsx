@@ -13,8 +13,11 @@ import {
   ArrowRight,
   ChevronRight,
   ChevronDown,
-  Volume2
+  Volume2,
+  Loader2,
+  Bot
 } from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
 import { ROOT_NOTES, CHORD_TYPES, PROGRESSIONS, FEATURED_CHORDS } from './constants';
 import { getChordData, detectChordsFromNotes, getChordResolutions, parseChord, getProgressionChords, getFeaturedChordData, getVoicing, getProgressionVoicings } from './services/musicLogic';
 import { playChord, playProgression } from './services/audio';
@@ -37,6 +40,10 @@ function App() {
   const [detectorInput, setDetectorInput] = useState<string>('');
   const [detectorCandidates, setDetectorCandidates] = useState<ChordData[]>([]);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
+
+  // AI State
+  const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
   // Progression State
   const [progressionRoot, setProgressionRoot] = useState<RootNote>('C');
@@ -90,6 +97,8 @@ function App() {
     const candidates = detectChordsFromNotes(val);
     setDetectorCandidates(candidates);
     setSelectedCandidateIndex(0);
+    // Clear AI analysis when input changes
+    setAiAnalysis(''); 
   };
 
   // Clear Detector
@@ -97,6 +106,7 @@ function App() {
     setDetectorInput('');
     setDetectorCandidates([]);
     setSelectedCandidateIndex(0);
+    setAiAnalysis('');
   };
 
   // Handle Piano Input
@@ -109,6 +119,50 @@ function App() {
     
     // Play the single note immediately for feedback
     playChord([note]);
+    // Clear AI analysis when input changes
+    setAiAnalysis('');
+  };
+
+  // Gemini Integration
+  const analyzeChordWithGemini = async () => {
+    if (!detectorInput.trim()) return;
+
+    setIsAiLoading(true);
+    setAiAnalysis('');
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      let prompt = '';
+      
+      if (activeChordData) {
+        prompt = `Act as a music theory expert. I have detected this chord: ${activeChordData.root}${activeChordData.symbol} (${activeChordData.name}). 
+        The specific notes are: ${activeChordData.notes.join(', ')}.
+        Please provide a concise, creative insight (max 60 words). 
+        1. Describe its emotional quality.
+        2. Suggest a context where this chord shines (e.g., a genre or a specific progression).
+        Use **bolding** for key terms or emotional descriptors.`;
+      } else {
+        prompt = `Act as a music theory expert. I have these notes: ${detectorInput}. 
+        No standard chord was strictly detected by my algorithm. 
+        Please analyze these intervals. Is this a variation of a known chord (e.g. rootless, cluster)? 
+        Provide a concise advice (max 60 words) on how to interpret or resolve this sound.
+        Use **bolding** for key terms.`;
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+      });
+
+      setAiAnalysis(response.text || "I couldn't generate an analysis at this time.");
+
+    } catch (error) {
+      console.error("Gemini API Error:", error);
+      setAiAnalysis("Unable to connect to the AI service. Please try again.");
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const handleResolutionClick = (chordName: string) => {
@@ -467,56 +521,113 @@ function App() {
                       </div>
                     </div>
 
-                    {!activeChordData && detectorInput && (
-                      <p className="mt-6 text-base text-red-500 font-medium bg-red-50 dark:bg-red-900/10 py-2 px-6 rounded-lg animate-pulse">
-                        Chord not found.
-                      </p>
-                    )}
-                    {activeChordData && (
-                       <div className="mt-10 animate-scale-in flex flex-col items-center opacity-0 px-4 text-center">
-                         <div className="flex flex-col sm:flex-row items-center gap-6">
-                           <div className="flex items-center gap-4">
-                             <h3 className="text-5xl sm:text-6xl font-bold tracking-tighter text-gray-900 dark:text-white">
-                              {activeChordData.root}
-                              <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
-                             </h3>
-                             <button 
-                                onClick={() => activeChordData && playChord(activeChordData.notes)}
-                                className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
-                                aria-label="Play Detected Chord"
-                             >
-                                <Volume2 size={28} />
-                             </button>
-                           </div>
-                           
-                           {/* Candidate Dropdown */}
-                           {detectorCandidates.length > 1 && (
-                             <div className="relative group w-full sm:w-auto mt-4 sm:mt-0">
-                                <select 
-                                  value={selectedCandidateIndex}
-                                  onChange={(e) => setSelectedCandidateIndex(Number(e.target.value))}
-                                  className="appearance-none w-full sm:w-auto bg-gray-100 dark:bg-zinc-800 border-transparent rounded-lg py-3 pl-4 pr-10 text-base font-medium text-gray-700 dark:text-gray-200 cursor-pointer focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-shadow hover:bg-gray-200 dark:hover:bg-zinc-700"
-                                >
-                                  {detectorCandidates.map((candidate, idx) => (
-                                    <option key={idx} value={idx}>
-                                      {candidate.root}{candidate.symbol} ({candidate.name})
-                                    </option>
-                                  ))}
-                                </select>
-                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                    {/* AI & Status Section */}
+                    <div className="w-full mt-8 flex flex-col items-center">
+                        
+                        {/* No Chord Detected Message */}
+                        {!activeChordData && detectorInput && (
+                          <p className="mb-4 text-base text-red-500 font-medium bg-red-50 dark:bg-red-900/10 py-2 px-6 rounded-lg animate-pulse">
+                            Standard chord not found.
+                          </p>
+                        )}
+
+                        {/* Chord Detected Display */}
+                        {activeChordData && (
+                           <div className="mb-6 animate-scale-in flex flex-col items-center opacity-0 px-4 text-center">
+                             <div className="flex flex-col sm:flex-row items-center gap-6">
+                               <div className="flex items-center gap-4">
+                                 <h3 className="text-5xl sm:text-6xl font-bold tracking-tighter text-gray-900 dark:text-white">
+                                  {activeChordData.root}
+                                  <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
+                                 </h3>
+                                 <button 
+                                    onClick={() => activeChordData && playChord(activeChordData.notes)}
+                                    className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
+                                    aria-label="Play Detected Chord"
+                                 >
+                                    <Volume2 size={28} />
+                                 </button>
+                               </div>
+                               
+                               {/* Candidate Dropdown */}
+                               {detectorCandidates.length > 1 && (
+                                 <div className="relative group w-full sm:w-auto mt-4 sm:mt-0">
+                                    <select 
+                                      value={selectedCandidateIndex}
+                                      onChange={(e) => setSelectedCandidateIndex(Number(e.target.value))}
+                                      className="appearance-none w-full sm:w-auto bg-gray-100 dark:bg-zinc-800 border-transparent rounded-lg py-3 pl-4 pr-10 text-base font-medium text-gray-700 dark:text-gray-200 cursor-pointer focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-shadow hover:bg-gray-200 dark:hover:bg-zinc-700"
+                                    >
+                                      {detectorCandidates.map((candidate, idx) => (
+                                        <option key={idx} value={idx}>
+                                          {candidate.root}{candidate.symbol} ({candidate.name})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                 </div>
+                               )}
                              </div>
-                           )}
-                         </div>
-                         <p className="text-gray-500 dark:text-zinc-400 mt-3 text-lg font-medium">
-                           {activeChordData.name || 'Detected Chord'}
-                           {detectorCandidates.length > 1 && (
-                             <span className="text-xs bg-gray-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full ml-3 align-middle">
-                               {selectedCandidateIndex + 1}/{detectorCandidates.length}
-                             </span>
-                           )}
-                         </p>
-                       </div>
-                    )}
+                             <p className="text-gray-500 dark:text-zinc-400 mt-3 text-lg font-medium">
+                               {activeChordData.name || 'Detected Chord'}
+                               {detectorCandidates.length > 1 && (
+                                 <span className="text-xs bg-gray-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full ml-3 align-middle">
+                                   {selectedCandidateIndex + 1}/{detectorCandidates.length}
+                                 </span>
+                               )}
+                             </p>
+                           </div>
+                        )}
+
+                        {/* AI Analyze Button */}
+                        {detectorInput && (
+                            <button
+                                onClick={analyzeChordWithGemini}
+                                disabled={isAiLoading}
+                                className={`
+                                    flex items-center gap-2 px-6 py-3 rounded-full font-semibold transition-all duration-300
+                                    ${isAiLoading 
+                                        ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-wait' 
+                                        : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg hover:shadow-xl hover:scale-105 active:scale-95'}
+                                `}
+                            >
+                                {isAiLoading ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        Analyzing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Sparkles size={18} />
+                                        {activeChordData ? 'Analyze with Gemini' : 'Ask AI about these notes'}
+                                    </>
+                                )}
+                            </button>
+                        )}
+
+                        {/* AI Analysis Result */}
+                        {aiAnalysis && (
+                            <div className="mt-8 w-full max-w-2xl bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl p-6 md:p-8 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 shadow-xl animate-slide-up-fade text-left">
+                                <div className="flex items-center gap-3 mb-4 text-indigo-600 dark:text-indigo-400 pb-2 border-b border-indigo-100 dark:border-indigo-900/30">
+                                    <Bot size={24} />
+                                    <h4 className="font-bold text-lg">AI Insight</h4>
+                                </div>
+                                <div className="text-gray-700 dark:text-zinc-300 leading-relaxed text-lg space-y-4 text-left">
+                                    {aiAnalysis.split('\n').filter(line => line.trim() !== '').map((line, lineIdx) => (
+                                        <p key={lineIdx}>
+                                            {line.split(/\*\*(.*?)\*\*/g).map((part, i) => 
+                                                i % 2 === 1 ? (
+                                                    <span key={i} className="font-bold text-gray-900 dark:text-white bg-indigo-50 dark:bg-indigo-900/30 px-1 rounded">{part}</span>
+                                                ) : (
+                                                    part
+                                                )
+                                            )}
+                                        </p>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                   </div>
                 )}
               </div>
