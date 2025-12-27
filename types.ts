@@ -24,6 +24,7 @@ export interface ChordData {
   symbol: string;
   notes: string[]; // e.g. ["C4", "E4", "G4"]
   intervals: string[];
+  name?: string; // e.g. "Major", "Minor 7th"
 }
 
 export interface ProgressionDefinition {

@@ -63,12 +63,8 @@ const sanitizeSymbol = (symbol: string, root: string): string => {
   let s = symbol || '';
   
   // 1. If the symbol starts with the Root Note (e.g. "Gsus4" when root is "G"), strip it.
-  // We strictly check if it starts with the root string.
-  // Note: We must be careful with accidentals. If root is "G" and symbol is "Gb...", don't strip "G".
-  // But usually tonal returns root as 'G', 'Gb', etc.
-  if (s.startsWith(root)) {
+  if (root && s.startsWith(root)) {
     // Check boundary: ensure the next char isn't an accidental if the root didn't have one
-    // e.g. Root: A, Symbol: Abmaj7. A is prefix of Ab. Should not strip.
     const rest = s.slice(root.length);
     const nextChar = rest[0];
     const rootHasAccidental = root.includes('#') || root.includes('b');
@@ -80,8 +76,17 @@ const sanitizeSymbol = (symbol: string, root: string): string => {
   }
 
   // 2. Remove standard Major notations
+  // But be careful not to remove 'm' (minor)
   if (['M', 'major', 'Major', 'Maj', 'maj'].includes(s)) {
     return '';
+  }
+  
+  // Handle Slash chords where symbol is "M/E" or "Major/E"
+  if (s.includes('/')) {
+      const [quality, bass] = s.split('/');
+      if (['M', 'major', 'Major', 'Maj', 'maj'].includes(quality)) {
+          return `/${bass}`;
+      }
   }
 
   return s;
@@ -106,6 +111,7 @@ export const getChordData = (root: string, typeSymbol: string): ChordData | null
     symbol: cleanSymbol,
     notes: notesWithOctaves,
     intervals: chord.intervals,
+    name: chord.name // Add full name
   };
 };
 
@@ -127,7 +133,8 @@ export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null 
       root: featured.root,
       symbol: featured.symbol,
       notes: featured.customNotes,
-      intervals: intervals
+      intervals: intervals,
+      name: featured.displayName
     };
   }
 
@@ -136,79 +143,104 @@ export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null 
 };
 
 /**
- * Detects a chord from a list of notes.
+ * Detects chords from a list of notes, returning multiple candidates if available.
  */
-export const detectChordFromNotes = (input: string): ChordData | null => {
+export const detectChordsFromNotes = (input: string): ChordData[] => {
   // Clean input: remove extra spaces, split by space or comma
   const rawNotes = input.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
   
-  if (rawNotes.length === 0) return null;
+  if (rawNotes.length === 0) return [];
 
   // Validate notes to filter out garbage input
   const validNotes = rawNotes.filter(n => !Note.get(n).empty);
   
-  if (validNotes.length === 0) return null;
+  if (validNotes.length === 0) return [];
 
   // Detect
   const detected = Chord.detect(validNotes);
   
-  if (detected.length === 0) return null;
+  if (detected.length === 0) return [];
 
-  // Take the first detection
-  const bestMatch = detected[0];
-  const chordInfo = Chord.get(bestMatch);
-  
-  if (chordInfo.empty) return null;
-
-  // Preserve octave voicing from input if available
+  // Preserve octave voicing from input if available for visual rendering
   const finalNotes = assignOctaves(validNotes);
 
-  // Determine Symbol
-  let cleanSymbol = chordInfo.symbol || '';
-  const root = chordInfo.tonic || '';
+  // Map all detections to ChordData
+  return detected.map(match => {
+      const chordInfo = Chord.get(match);
+      
+      // Fallback logic for Root: if Tonal doesn't parse tonic, try extracting from string
+      let root = chordInfo.tonic;
+      if (!root) {
+        const rootMatch = match.match(/^[A-G][#b]?/);
+        root = rootMatch ? rootMatch[0] : '';
+      }
 
-  // 1. Sanitize (Strip root from symbol if present, remove 'M')
-  cleanSymbol = sanitizeSymbol(cleanSymbol, root);
+      // Determine clean symbol for display
+      // We start with the full matched string (e.g., "Am/E") and strip the root ("A")
+      let cleanSymbol = '';
+      if (root && match.startsWith(root)) {
+          // Careful stripping: Ensure we don't strip "A" from "Ab"
+          const rootHasAccidental = root.length > 1;
+          const matchNextChar = match[root.length];
+          
+          if (rootHasAccidental || (matchNextChar !== '#' && matchNextChar !== 'b')) {
+             cleanSymbol = match.slice(root.length);
+          } else {
+             // Fallback: This shouldn't happen if Tonal works correctly
+             cleanSymbol = match; 
+          }
+      } else {
+          // Fallback if match structure is weird
+          cleanSymbol = chordInfo.symbol || '';
+      }
 
-  // 2. Extra check for pure Major Triad intervals to be absolutely sure
-  const isMajorTriad = 
-    chordInfo.intervals.length === 3 && 
-    JSON.stringify(chordInfo.intervals) === JSON.stringify(['1P', '3M', '5P']);
+      // If symbol is just "Major" or "M", clear it.
+      // If symbol is "M/E", make it "/E".
+      // If symbol is "m/E", keep it.
+      // If symbol is "m", keep it.
+      
+      // Handle the case where cleanSymbol starts with 'M' or 'Major' 
+      // but isn't 'Maj7', 'Min' etc.
+      // E.g. "C/E" -> Root "C", cleanSymbol "/E". Correct.
+      // E.g. "CMaj7" -> Root "C", cleanSymbol "Maj7". Correct.
+      // E.g. "C" -> Root "C", cleanSymbol "". Correct.
+      
+      // Additional safety: if cleanSymbol is exactly 'M' or 'Major', clear it.
+      if (['M', 'Major', 'major'].includes(cleanSymbol)) {
+          cleanSymbol = '';
+      }
+      
+      // Also handle slash cleanup if needed (e.g. "Major/E" -> "/E")
+      if (cleanSymbol.startsWith('M/') || cleanSymbol.startsWith('Major/')) {
+         cleanSymbol = cleanSymbol.replace(/^(M|Major)/, '');
+      }
 
-  if (isMajorTriad) {
-    cleanSymbol = '';
-  }
+      // Determine Name
+      const name = chordInfo.name || match; 
 
-  // 3. Handle Slash Chords (Bass Note)
-  if (bestMatch.includes('/')) {
-    const parts = bestMatch.split('/');
-    const bass = parts[1];
-    if (bass) {
-        // If the bass is valid and not the root
-        if (bass !== root) {
-             // If the symbol doesn't already show the bass
-             if (!cleanSymbol.includes(`/${bass}`)) {
-                 cleanSymbol = `${cleanSymbol}/${bass}`;
-             }
-        }
-    }
-  }
-
-  return {
-    root: root,
-    symbol: cleanSymbol,
-    notes: finalNotes,
-    intervals: chordInfo.intervals,
-  };
+      return {
+        root: root,
+        symbol: cleanSymbol,
+        notes: finalNotes,
+        intervals: chordInfo.intervals.length > 0 ? chordInfo.intervals : [],
+        name: name
+      };
+  });
 };
 
 /**
  * Returns a list of potential chords that the current chord might resolve to.
  */
 export const getChordResolutions = (root: string, symbol: string): string[] => {
-  const s = symbol || '';
+  // Guard against missing root
+  if (!root) return [];
+
   // Ensure root is just the note name, strip octave if present
   const r = root.replace(/[0-9]/g, ''); 
+
+  // For resolution logic, we want the core quality, ignoring bass/inversion
+  // e.g. "m/E" -> "m", "7/F#" -> "7"
+  const s = symbol ? symbol.split('/')[0] : '';
 
   try {
       // 1. Suspended -> Resolve to Root Major or Minor
@@ -224,45 +256,56 @@ export const getChordResolutions = (root: string, symbol: string): string[] => {
       if (isDom) {
         // V7 -> I (Perfect 4th up)
         const target = Note.transpose(r, '4P');
-        return [target, `${target}m`];
+        return target ? [target, `${target}m`] : [];
       }
 
       // 3. Half Diminished (m7b5) -> iiø resolves to V
       if (s === 'm7b5') {
          // ii - V (up 4th)
-         const target = `${Note.transpose(r, '4P')}7`; 
-         return [target];
+         const target = Note.transpose(r, '4P');
+         return target ? [`${target}7`] : [];
       }
 
       // 4. Minor (m, m7, etc)
+      // Must check startsWith('m') but ensure it's not 'maj'
       if (s.startsWith('m') && !s.includes('maj')) {
           // i -> bIII (Relative Major)
           const relMaj = Note.transpose(r, '3m');
           // i -> iv (Subdominant)
-          const iv = `${Note.transpose(r, '4P')}m`;
+          const iv = Note.transpose(r, '4P');
           // i -> V (Dominant)
           const V = Note.transpose(r, '5P');
-          return [relMaj, iv, V];
+          
+          const result = [];
+          if (relMaj) result.push(relMaj);
+          if (iv) result.push(`${iv}m`);
+          if (V) result.push(V);
+          return result;
       }
 
       // 5. Diminished (dim, dim7) -> Resolves up a semitone (Leading Tone)
       if (s.includes('dim')) {
          const target = Note.transpose(r, '2m');
-         return [target, `${target}m`];
+         return target ? [target, `${target}m`] : [];
       }
       
       // 6. Augmented -> V+ resolves to I (4th up)
       if (s.includes('aug')) {
          const target = Note.transpose(r, '4P');
-         return [target];
+         return target ? [target] : [];
       }
 
       // 7. Major (Triad, maj7, add9, etc) - Default
       // I -> IV, V, vi
       const IV = Note.transpose(r, '4P');
       const V = Note.transpose(r, '5P');
-      const vi = `${Note.transpose(r, '6M')}m`;
-      return [IV, V, vi];
+      const vi = Note.transpose(r, '6M');
+      
+      const result = [];
+      if (IV) result.push(IV);
+      if (V) result.push(V);
+      if (vi) result.push(`${vi}m`);
+      return result;
 
   } catch (e) {
       console.error('Error calculating resolutions:', e);

@@ -51,9 +51,10 @@ const Piano: React.FC<PianoProps> = ({ onNotePlay }) => {
                     className={`
                         relative flex-1 h-full
                         border-r last:border-r-0 
-                        transition-colors duration-100 ease-out
+                        transition-all duration-100 ease-out
                         outline-none z-0
-                        group
+                        group origin-top
+                        active:scale-y-[0.98] active:brightness-95
                         ${ /* Light Mode */ 'bg-white border-gray-200 hover:bg-gray-50 active:bg-gray-100' }
                         ${ /* Dark Mode - Improved Contrast */ 'dark:bg-zinc-200 dark:border-zinc-300 dark:hover:bg-zinc-100 dark:active:bg-zinc-300' }
                     `}
@@ -94,6 +95,7 @@ const Piano: React.FC<PianoProps> = ({ onNotePlay }) => {
                         transition-all duration-100 ease-out
                         z-10 shadow-md
                         border-b-[3px] border-b-transparent active:border-b-0 active:h-[59%]
+                        origin-top
                         ${ /* Light Mode */ 'bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-900' }
                         ${ /* Dark Mode */ 'dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:border-black' }
                     `}
