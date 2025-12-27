@@ -37,7 +37,7 @@ export const PROGRESSIONS: ProgressionDefinition[] = [
   { name: 'Andalusian (Minor)', numerals: ['i', 'bVII', 'bVI', 'V7'] },
   { name: 'Pachelbel\'s Canon', numerals: ['I', 'V', 'vi', 'iii', 'IV', 'I', 'IV', 'V'] },
   { name: 'Simple Rock/Blues', numerals: ['I', 'IV', 'V', 'IV'] },
-  { name: 'Royal Road (J-Pop)', numerals: ['IV', 'V', 'iii', 'vi'] },
+  { name: 'Royal Road (J-Pop)', numerals: ['IVmaj7', 'V7', 'iii7', 'vi7'] },
 ];
 
 export const FEATURED_CHORDS: FeaturedChord[] = [

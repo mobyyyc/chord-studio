@@ -41,94 +41,84 @@ const sanitizeSymbol = (symbol: string, root: string): string => {
 };
 
 /**
- * Generates a "Standard Closed Voicing" for Library display.
- * Strategy: Anchor Root at Octave 4 (Middle C range) and stack intervals upwards.
- * This keeps chords "in staff" for better readability (e.g. G4 B4 D5).
+ * Generates standard closed voicing for library display.
+ * Uses Octave 4 as base for clear Treble Clef visibility.
  */
 const getStandardVoicing = (root: string, intervals: string[]): string[] => {
   if (!root) return [];
   
-  // Anchor at Octave 4 for best staff readability (Treble Clef)
-  const rootNote = `${root}4`;
+  // Use Octave 4 as the standard "Middle C" range base for Sheet Music visualization
+  const startOctave = 4;
+  const rootNote = `${root}${startOctave}`;
   
-  // Tonal intervals usually include '1P'. If so, mapping them generates the full chord.
-  // If '1P' is missing for some reason, we might miss the root, but Tonal standardizes this.
-  const notes = intervals.map(iv => Note.transpose(rootNote, iv));
-
-  // Sort by pitch just in case of weird interval math
-  return notes.sort((a, b) => {
-    const mA = Note.midi(a) || 0;
-    const mB = Note.midi(b) || 0;
-    return mA - mB;
+  return intervals.map(interval => {
+    return Note.transpose(rootNote, interval);
   });
 };
 
 /**
- * Generates a "Smart Open Voicing" for Progressions.
- * Strategy: Root (Octave 3) -> 5th (Octave 3/4) -> 7th (Octave 3/4) -> 3rd (Octave 4).
- * This creates a spread "Shell Voicing" + Melody (3rd on top), avoiding low-interval mud
- * and minor-second clashes in the middle register.
+ * Generates "Natural" voicing for progressions (Left Hand Bass + Right Hand Chord).
+ * Logic:
+ * - Roots C, C#, D, D#, Eb -> Bass Octave 3, Chord Octave 4.
+ * - Roots E, F, F#, G, G#, A, Bb, B -> Bass Octave 2, Chord Octave 3.
+ *   (Added E to Low Roots to satisfy "Em should be an octave lower")
  */
-const getSpreadVoicing = (root: string, intervals: string[]): string[] => {
-  if (!root) return [];
-  
-  const startOctave = 3;
-  const rootNote = `${root}${startOctave}`;
-  
-  const voicing: string[] = [rootNote];
+const getNaturalVoicing = (root: string, intervals: string[]): string[] => {
+    if (!root) return [];
 
-  // 2. Add 5th (if exists)
-  const fifthIv = intervals.find(i => i.startsWith('5'));
-  if (fifthIv) {
-    voicing.push(Note.transpose(rootNote, fifthIv));
-  }
+    // Normalize root pitch class to determine register
+    const pc = Note.pitchClass(root); // e.g., "C", "G#"
 
-  // 3. Add 7th or 6th (if exists)
-  const seventhIv = intervals.find(i => i.startsWith('7') || i.startsWith('6'));
-  if (seventhIv) {
-    voicing.push(Note.transpose(rootNote, seventhIv));
-  }
+    // Define "Low Register" roots. Added 'E' to this list so Em starts on E2.
+    const lowRoots = ['E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'];
+    
+    const isLowRoot = lowRoots.includes(pc);
+    
+    const bassOctave = isLowRoot ? 2 : 3;
+    const chordOctave = isLowRoot ? 3 : 4;
 
-  // 4. Add 3rd (or 2/4 for sus) -> PUSH TO NEXT OCTAVE (Spread)
-  const thirdIv = intervals.find(i => i.startsWith('3') || i.startsWith('2') || i.startsWith('4'));
-  if (thirdIv) {
-    const lowThird = Note.transpose(rootNote, thirdIv);
-    const midi = Note.midi(lowThird);
-    if (midi !== null) {
-      voicing.push(Note.fromMidi(midi + 12));
+    const bassNote = `${pc}${bassOctave}`;
+    const chordRoot = `${pc}${chordOctave}`;
+
+    // SPECIAL LOGIC: Major 7th Chords (Root-5-7-3 Voicing)
+    // "you can have root, fifth, seventh, and lastly third (an octave higher)"
+    const isMaj7 = intervals.includes('7M') && intervals.includes('3M');
+    
+    if (isMaj7) {
+        // Construct specific stack: Bass(Root) -> RH: Root, 5th, 7th, 3rd(+Octave)
+        // 10M is the compound Major 3rd (3rd + Octave)
+        // We include the Root in RH as well for a full 4-note voicing
+        const voicing = [
+            bassNote, // Bass Note
+            Note.transpose(chordRoot, '1P'),  // Root (RH)
+            Note.transpose(chordRoot, '5P'),  // 5th
+            Note.transpose(chordRoot, '7M'),  // 7th
+            Note.transpose(chordRoot, '10M')  // 3rd (High)
+        ];
+        return voicing;
     }
-  }
 
-  // 5. Add Extensions (9, 11, 13) -> Push to next octave
-  const extIv = intervals.find(i => {
-    const num = parseInt(i.replace(/\D/g, ''));
-    return num > 7;
-  });
-  if (extIv) {
-    const lowExt = Note.transpose(rootNote, extIv);
-    const midi = Note.midi(lowExt);
-    if (midi !== null) {
-      voicing.push(Note.fromMidi(midi + 12));
-    }
-  }
+    // DEFAULT LOGIC: Block Chord
+    // 1. Add Bass Note
+    const voicing = [bassNote];
 
-  return voicing.sort((a, b) => {
-    const mA = Note.midi(a) || 0;
-    const mB = Note.midi(b) || 0;
-    return mA - mB;
-  });
+    // 2. Add Chord Notes (Right Hand)
+    intervals.forEach(interval => {
+        voicing.push(Note.transpose(chordRoot, interval));
+    });
+
+    return voicing;
 };
 
 /**
  * Generates chord data for a given root and type symbol.
- * USES: Standard Voicing (Closed) for Library Display.
  */
 export const getChordData = (root: string, typeSymbol: string): ChordData | null => {
   const chord = Chord.get(`${root}${typeSymbol}`);
   
   if (chord.empty) return null;
 
-  // Library Mode -> Standard Closed Voicing (in staff)
+  // Use Standard Voicing (Block Chord) for Library Display
   const notes = getStandardVoicing(chord.tonic || root, chord.intervals);
 
   const cleanSymbol = sanitizeSymbol(chord.symbol, chord.tonic || root);
@@ -144,23 +134,24 @@ export const getChordData = (root: string, typeSymbol: string): ChordData | null
 
 /**
  * Generates specific note voicings for a chord name string.
- * USES: Standard Voicing (Closed) for single click feedback.
+ * Used for single-click playback in progression view.
  */
 export const getVoicing = (chordName: string): string[] => {
   const chord = Chord.get(chordName);
   if (chord.empty) return [];
-  return getStandardVoicing(chord.tonic || '', chord.intervals);
+  // Use Natural Voicing for better listening experience
+  return getNaturalVoicing(chord.tonic || '', chord.intervals);
 };
 
 /**
  * Generates a full sequence of notes for a chord progression.
- * USES: Spread Voicing for musical progression playback.
+ * Applies Natural Voicing to the entire sequence.
  */
 export const getProgressionVoicings = (chordNames: string[]): string[][] => {
   return chordNames.map(name => {
     const chord = Chord.get(name);
     if (chord.empty) return [];
-    return getSpreadVoicing(chord.tonic || '', chord.intervals);
+    return getNaturalVoicing(chord.tonic || '', chord.intervals);
   });
 };
 
@@ -184,11 +175,8 @@ export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null 
   }
 
   const chord = Chord.get(`${featured.root}${featured.symbol}`);
-  // Featured chords -> Usually stick to Spread/Complex voicings or Standard?
-  // User didn't specify, but showcased chords usually sound better with Spread.
-  // However, "Hendrix chord" etc might have custom notes.
-  // Let's use Spread for Featured to make them sound "Featured".
-  const notes = getSpreadVoicing(featured.root, chord.intervals);
+  // Use Standard for visual clarity in showcase
+  const notes = getStandardVoicing(featured.root, chord.intervals);
   
   return {
     root: featured.root,
@@ -228,7 +216,7 @@ export const detectChordsFromNotes = (input: string): ChordData[] => {
       const chordInfo = Chord.get(match);
       
       // If user typed notes with octaves, keep them (sorted).
-      // If user typed just letters ("C E G"), use Standard Voicing (Closed) for display.
+      // Otherwise use standard voicing
       const displayNotes = hasOctaves ? validNotes : getStandardVoicing(chordInfo.tonic || '', chordInfo.intervals);
 
       let root = chordInfo.tonic;
