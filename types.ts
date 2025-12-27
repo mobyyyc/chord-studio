@@ -25,3 +25,18 @@ export interface ChordData {
   notes: string[]; // e.g. ["C4", "E4", "G4"]
   intervals: string[];
 }
+
+export interface ProgressionDefinition {
+  name: string;
+  numerals: string[];
+}
+
+export interface FeaturedChord {
+  id: string;
+  displayName: string;
+  root: string;
+  symbol: string;
+  description: string;
+  tags: string[];
+  customNotes?: string[]; // Optional specific voicing (e.g. "C4", "G4", etc.)
+}

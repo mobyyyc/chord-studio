@@ -1,5 +1,5 @@
-import { Chord, Note } from 'tonal';
-import { ChordData } from '../types';
+import { Chord, Note, Progression, Interval } from 'tonal';
+import { ChordData, FeaturedChord } from '../types';
 import { ROOT_NOTES } from '../constants';
 
 /**
@@ -107,6 +107,32 @@ export const getChordData = (root: string, typeSymbol: string): ChordData | null
     notes: notesWithOctaves,
     intervals: chord.intervals,
   };
+};
+
+/**
+ * Generates chord data for a featured chord, potentially using custom notes.
+ */
+export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null => {
+  // If custom notes are provided, use them directly
+  if (featured.customNotes && featured.customNotes.length > 0) {
+    // Calculate intervals manually relative to root
+    const intervals = featured.customNotes.map(note => {
+      // Note: This calculates simple intervals (e.g. 1P, 3M) ignoring octave gaps for simplicity in display,
+      // or we can use the exact distance. Let's use simplified interval from root pitch class.
+      const dist = Interval.distance(featured.root, note.replace(/\d/, ''));
+      return dist;
+    });
+
+    return {
+      root: featured.root,
+      symbol: featured.symbol,
+      notes: featured.customNotes,
+      intervals: intervals
+    };
+  }
+
+  // Fallback to standard generation
+  return getChordData(featured.root, featured.symbol);
 };
 
 /**
@@ -271,4 +297,11 @@ export const parseChord = (chordName: string): { root: string, symbol: string } 
 
   // 3. Fallback (return original, UI might fail to highlight root but will still load)
   return { root, symbol };
+};
+
+/**
+ * Generates actual chord names from Roman Numerals in a given key.
+ */
+export const getProgressionChords = (key: string, numerals: string[]): string[] => {
+  return Progression.fromRomanNumerals(key, numerals);
 };
