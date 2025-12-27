@@ -12,10 +12,12 @@ import {
   Sparkles,
   ArrowRight,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  Volume2
 } from 'lucide-react';
 import { ROOT_NOTES, CHORD_TYPES, PROGRESSIONS, FEATURED_CHORDS } from './constants';
-import { getChordData, detectChordsFromNotes, getChordResolutions, parseChord, getProgressionChords, getFeaturedChordData } from './services/musicLogic';
+import { getChordData, detectChordsFromNotes, getChordResolutions, parseChord, getProgressionChords, getFeaturedChordData, getVoicing, getProgressionVoicings } from './services/musicLogic';
+import { playChord, playProgression } from './services/audio';
 import MusicStaff from './components/MusicStaff';
 import Piano from './components/Piano';
 import { ChordData, RootNote, ChordDefinition } from './types';
@@ -104,6 +106,9 @@ function App() {
     const candidates = detectChordsFromNotes(newVal);
     setDetectorCandidates(candidates);
     setSelectedCandidateIndex(0);
+    
+    // Play the single note immediately for feedback
+    playChord([note]);
   };
 
   const handleResolutionClick = (chordName: string) => {
@@ -183,8 +188,17 @@ function App() {
              </div>
 
              {/* Visual Staff Card */}
-             <div className="w-full max-w-lg aspect-video bg-white/50 dark:bg-zinc-900/50 backdrop-blur-xl rounded-3xl border border-white/20 dark:border-white/10 shadow-2xl flex items-center justify-center p-8 animate-slide-up animation-delay-200 hover:scale-[1.02] transition-transform duration-500 opacity-0">
+             <div className="relative w-full max-w-lg aspect-video bg-white/50 dark:bg-zinc-900/50 backdrop-blur-xl rounded-3xl border border-white/20 dark:border-white/10 shadow-2xl flex items-center justify-center p-8 animate-slide-up animation-delay-200 hover:scale-[1.02] transition-transform duration-500 opacity-0 group">
                  <MusicStaff notes={activeChordData?.notes || []} isDarkMode={isDarkMode} />
+                 
+                 {/* Play Button Overlay */}
+                 <button 
+                    onClick={() => activeChordData && playChord(activeChordData.notes)}
+                    className="absolute top-4 right-4 p-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 hover:scale-110 active:scale-95 transition-all duration-200 group-hover:opacity-100 opacity-0 transform translate-y-2 group-hover:translate-y-0"
+                    title="Play Chord"
+                 >
+                    <Volume2 size={20} />
+                 </button>
              </div>
 
              {/* Description */}
@@ -378,10 +392,21 @@ function App() {
               <div className="text-center space-y-2">
                 {mode === 'library' && (
                   <>
-                    <h2 className="text-4xl md:text-6xl font-bold tracking-tighter text-gray-900 dark:text-white animate-scale-in opacity-0">
-                      {activeChordData?.root || selectedRoot}
-                      <span className="text-indigo-600 dark:text-indigo-400">{selectedType}</span>
-                    </h2>
+                    <div className="flex items-center justify-center gap-4 animate-scale-in opacity-0">
+                       <h2 className="text-4xl md:text-6xl font-bold tracking-tighter text-gray-900 dark:text-white">
+                        {activeChordData?.root || selectedRoot}
+                        <span className="text-indigo-600 dark:text-indigo-400">{selectedType}</span>
+                       </h2>
+                       {activeChordData && (
+                          <button 
+                            onClick={() => playChord(activeChordData.notes)}
+                            className="p-3 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
+                            aria-label="Play Chord"
+                          >
+                             <Volume2 size={24} />
+                          </button>
+                       )}
+                    </div>
                     <p className="text-gray-500 dark:text-zinc-400 text-lg animate-slide-up-fade animation-delay-100 opacity-0">
                       {CHORD_TYPES.find(t => t.symbol === selectedType)?.name}
                     </p>
@@ -434,10 +459,19 @@ function App() {
                     {activeChordData && (
                        <div className="mt-8 animate-scale-in flex flex-col items-center opacity-0">
                          <div className="flex items-center gap-4">
-                           <h3 className="text-5xl font-bold tracking-tighter text-gray-900 dark:text-white">
-                            {activeChordData.root}
-                            <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
-                           </h3>
+                           <div className="flex items-center gap-3">
+                             <h3 className="text-5xl font-bold tracking-tighter text-gray-900 dark:text-white">
+                              {activeChordData.root}
+                              <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
+                             </h3>
+                             <button 
+                                onClick={() => activeChordData && playChord(activeChordData.notes)}
+                                className="p-3 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
+                                aria-label="Play Detected Chord"
+                             >
+                                <Volume2 size={24} />
+                             </button>
+                           </div>
                            
                            {/* Candidate Dropdown */}
                            {detectorCandidates.length > 1 && (
@@ -510,15 +544,34 @@ function App() {
                         style={{ animationDelay: `${idx * 100}ms` }}
                       >
                         <div className="mb-6 flex justify-between items-start">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{prog.name}</h3>
-                          <span className="text-xs font-bold px-2 py-1 bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-500 rounded-md">Key of {progressionRoot}</span>
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{prog.name}</h3>
+                            <span className="text-xs font-bold px-2 py-1 bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-zinc-500 rounded-md mt-1 inline-block">Key of {progressionRoot}</span>
+                          </div>
+                          
+                          <button
+                            onClick={() => {
+                              // Use the new smooth voicing function here
+                              const sequence = getProgressionVoicings(chords);
+                              playProgression(sequence);
+                            }}
+                            className="p-2 rounded-full text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-zinc-800 transition-colors"
+                            aria-label="Play Progression"
+                            title="Play Sequence"
+                          >
+                             <Volume2 size={20} />
+                          </button>
                         </div>
                         
                         <div className="flex flex-wrap gap-4 items-center">
                            {chords.map((chordName, cIdx) => (
                              <div key={`${chordName}-${cIdx}`} className="flex items-center gap-3">
                                 <button
-                                  onClick={() => handleResolutionClick(chordName)}
+                                  onClick={() => {
+                                      const notes = getVoicing(chordName);
+                                      playChord(notes);
+                                      handleResolutionClick(chordName);
+                                  }}
                                   className="group flex flex-col items-center cursor-pointer active:scale-95 duration-200"
                                 >
                                    <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform">
@@ -546,11 +599,17 @@ function App() {
               <div className="grid md:grid-cols-2 gap-8 items-center bg-white dark:bg-zinc-900 rounded-3xl p-8 shadow-xl shadow-gray-200/50 dark:shadow-black/20 border border-gray-100 dark:border-zinc-800 animate-scale-in animation-delay-200 opacity-0">
                 
                 {/* Visual Representation */}
-                <div className="flex flex-col items-center justify-center min-h-[250px] bg-gray-50 dark:bg-zinc-950/50 rounded-2xl border border-gray-100 dark:border-zinc-800/50 transition-colors duration-500">
+                <div className="relative flex flex-col items-center justify-center min-h-[250px] bg-gray-50 dark:bg-zinc-950/50 rounded-2xl border border-gray-100 dark:border-zinc-800/50 transition-colors duration-500">
                   <MusicStaff 
                     notes={activeChordData.notes} 
                     isDarkMode={isDarkMode} 
                   />
+                  <button 
+                      onClick={() => activeChordData && playChord(activeChordData.notes)}
+                      className="absolute bottom-4 right-4 p-2 rounded-full bg-indigo-50 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                      <Volume2 size={16} />
+                  </button>
                 </div>
 
                 {/* Theory Details */}
@@ -562,7 +621,7 @@ function App() {
                     <div className="flex flex-wrap gap-3">
                       {activeChordData.notes.map((note, idx) => (
                         <div key={idx} className="flex flex-col items-center group">
-                          <span className="w-12 h-12 flex items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold text-lg border border-indigo-100 dark:border-indigo-500/20 group-hover:-translate-y-1 transition-transform duration-300">
+                          <span className="w-12 h-12 flex items-center justify-center rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold text-lg border border-indigo-100 dark:border-indigo-500/20 group-hover:-translate-y-1 transition-transform duration-300 cursor-default">
                             {note.replace(/\d/, '')}
                           </span>
                           <span className="text-[10px] uppercase font-bold text-gray-400 mt-2">

@@ -3,58 +3,6 @@ import { ChordData, FeaturedChord } from '../types';
 import { ROOT_NOTES } from '../constants';
 
 /**
- * Helper: Assigns octaves to a list of pitch classes to make a coherent voicing.
- * Starts at octave 4 by default, but adapts to input.
- * Handles mixed input (some notes with octaves, some without).
- */
-const assignOctaves = (notes: string[]): string[] => {
-  let currentOctave = 4;
-  const result: string[] = [];
-  let previousMidi = -1;
-
-  notes.forEach((noteName) => {
-    // Check if note already has octave (e.g. "C4", "G#5")
-    if (/\d/.test(noteName)) {
-      result.push(noteName);
-      const midi = Note.midi(noteName);
-      if (midi) {
-        previousMidi = midi;
-        // Sync currentOctave to the explicit octave provided
-        const octMatch = noteName.match(/\d+$/);
-        if (octMatch) {
-          currentOctave = parseInt(octMatch[0], 10);
-        }
-      }
-      return;
-    }
-
-    // No octave provided, calculate based on context
-    let candidate = `${noteName}${currentOctave}`;
-    let midi = Note.midi(candidate);
-
-    // If midi lookup failed (invalid note), just pass it through
-    if (midi === null) {
-      result.push(noteName);
-      return;
-    }
-
-    // Logic: If this note is significantly lower than the previous note 
-    // within the same octave, it probably belongs to the next octave 
-    // to maintain upward trajectory or closeness.
-    if (previousMidi !== -1 && midi < previousMidi) {
-      currentOctave++;
-      candidate = `${noteName}${currentOctave}`;
-      midi = Note.midi(candidate);
-    }
-
-    result.push(candidate);
-    if (midi) previousMidi = midi;
-  });
-
-  return result;
-};
-
-/**
  * Common logic to clean up the chord symbol.
  * Removes the root if it appears at the start (e.g. "Gsus4" -> "sus4").
  * Removes "Major" / "M" labels for standard triads.
@@ -93,38 +41,135 @@ const sanitizeSymbol = (symbol: string, root: string): string => {
 };
 
 /**
+ * Generates a "Standard Closed Voicing" for Library display.
+ * Strategy: Anchor Root at Octave 4 (Middle C range) and stack intervals upwards.
+ * This keeps chords "in staff" for better readability (e.g. G4 B4 D5).
+ */
+const getStandardVoicing = (root: string, intervals: string[]): string[] => {
+  if (!root) return [];
+  
+  // Anchor at Octave 4 for best staff readability (Treble Clef)
+  const rootNote = `${root}4`;
+  
+  // Tonal intervals usually include '1P'. If so, mapping them generates the full chord.
+  // If '1P' is missing for some reason, we might miss the root, but Tonal standardizes this.
+  const notes = intervals.map(iv => Note.transpose(rootNote, iv));
+
+  // Sort by pitch just in case of weird interval math
+  return notes.sort((a, b) => {
+    const mA = Note.midi(a) || 0;
+    const mB = Note.midi(b) || 0;
+    return mA - mB;
+  });
+};
+
+/**
+ * Generates a "Smart Open Voicing" for Progressions.
+ * Strategy: Root (Octave 3) -> 5th (Octave 3/4) -> 7th (Octave 3/4) -> 3rd (Octave 4).
+ * This creates a spread "Shell Voicing" + Melody (3rd on top), avoiding low-interval mud
+ * and minor-second clashes in the middle register.
+ */
+const getSpreadVoicing = (root: string, intervals: string[]): string[] => {
+  if (!root) return [];
+  
+  const startOctave = 3;
+  const rootNote = `${root}${startOctave}`;
+  
+  const voicing: string[] = [rootNote];
+
+  // 2. Add 5th (if exists)
+  const fifthIv = intervals.find(i => i.startsWith('5'));
+  if (fifthIv) {
+    voicing.push(Note.transpose(rootNote, fifthIv));
+  }
+
+  // 3. Add 7th or 6th (if exists)
+  const seventhIv = intervals.find(i => i.startsWith('7') || i.startsWith('6'));
+  if (seventhIv) {
+    voicing.push(Note.transpose(rootNote, seventhIv));
+  }
+
+  // 4. Add 3rd (or 2/4 for sus) -> PUSH TO NEXT OCTAVE (Spread)
+  const thirdIv = intervals.find(i => i.startsWith('3') || i.startsWith('2') || i.startsWith('4'));
+  if (thirdIv) {
+    const lowThird = Note.transpose(rootNote, thirdIv);
+    const midi = Note.midi(lowThird);
+    if (midi !== null) {
+      voicing.push(Note.fromMidi(midi + 12));
+    }
+  }
+
+  // 5. Add Extensions (9, 11, 13) -> Push to next octave
+  const extIv = intervals.find(i => {
+    const num = parseInt(i.replace(/\D/g, ''));
+    return num > 7;
+  });
+  if (extIv) {
+    const lowExt = Note.transpose(rootNote, extIv);
+    const midi = Note.midi(lowExt);
+    if (midi !== null) {
+      voicing.push(Note.fromMidi(midi + 12));
+    }
+  }
+
+  return voicing.sort((a, b) => {
+    const mA = Note.midi(a) || 0;
+    const mB = Note.midi(b) || 0;
+    return mA - mB;
+  });
+};
+
+/**
  * Generates chord data for a given root and type symbol.
+ * USES: Standard Voicing (Closed) for Library Display.
  */
 export const getChordData = (root: string, typeSymbol: string): ChordData | null => {
-  // Use Tonal to get the chord
   const chord = Chord.get(`${root}${typeSymbol}`);
   
   if (chord.empty) return null;
 
-  // Assign octaves for visual rendering
-  const notesWithOctaves = assignOctaves(chord.notes);
+  // Library Mode -> Standard Closed Voicing (in staff)
+  const notes = getStandardVoicing(chord.tonic || root, chord.intervals);
 
   const cleanSymbol = sanitizeSymbol(chord.symbol, chord.tonic || root);
 
   return {
     root: chord.tonic || root,
     symbol: cleanSymbol,
-    notes: notesWithOctaves,
+    notes: notes,
     intervals: chord.intervals,
-    name: chord.name // Add full name
+    name: chord.name
   };
+};
+
+/**
+ * Generates specific note voicings for a chord name string.
+ * USES: Standard Voicing (Closed) for single click feedback.
+ */
+export const getVoicing = (chordName: string): string[] => {
+  const chord = Chord.get(chordName);
+  if (chord.empty) return [];
+  return getStandardVoicing(chord.tonic || '', chord.intervals);
+};
+
+/**
+ * Generates a full sequence of notes for a chord progression.
+ * USES: Spread Voicing for musical progression playback.
+ */
+export const getProgressionVoicings = (chordNames: string[]): string[][] => {
+  return chordNames.map(name => {
+    const chord = Chord.get(name);
+    if (chord.empty) return [];
+    return getSpreadVoicing(chord.tonic || '', chord.intervals);
+  });
 };
 
 /**
  * Generates chord data for a featured chord, potentially using custom notes.
  */
 export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null => {
-  // If custom notes are provided, use them directly
   if (featured.customNotes && featured.customNotes.length > 0) {
-    // Calculate intervals manually relative to root
     const intervals = featured.customNotes.map(note => {
-      // Note: This calculates simple intervals (e.g. 1P, 3M) ignoring octave gaps for simplicity in display,
-      // or we can use the exact distance. Let's use simplified interval from root pitch class.
       const dist = Interval.distance(featured.root, note.replace(/\d/, ''));
       return dist;
     });
@@ -138,92 +183,86 @@ export const getFeaturedChordData = (featured: FeaturedChord): ChordData | null 
     };
   }
 
-  // Fallback to standard generation
-  return getChordData(featured.root, featured.symbol);
+  const chord = Chord.get(`${featured.root}${featured.symbol}`);
+  // Featured chords -> Usually stick to Spread/Complex voicings or Standard?
+  // User didn't specify, but showcased chords usually sound better with Spread.
+  // However, "Hendrix chord" etc might have custom notes.
+  // Let's use Spread for Featured to make them sound "Featured".
+  const notes = getSpreadVoicing(featured.root, chord.intervals);
+  
+  return {
+    root: featured.root,
+    symbol: featured.symbol,
+    notes: notes,
+    intervals: chord.intervals,
+    name: featured.displayName
+  };
 };
 
 /**
- * Detects chords from a list of notes, returning multiple candidates if available.
+ * Detects chords from a list of notes.
  */
 export const detectChordsFromNotes = (input: string): ChordData[] => {
-  // Clean input: remove extra spaces, split by space or comma
   const rawNotes = input.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
   
   if (rawNotes.length === 0) return [];
 
-  // Validate notes to filter out garbage input
-  const validNotes = rawNotes.filter(n => !Note.get(n).empty);
+  const validNotes = rawNotes
+    .filter(n => !Note.get(n).empty)
+    .sort((a, b) => {
+       const mA = Note.midi(a);
+       const mB = Note.midi(b);
+       if (mA !== null && mB !== null) return mA - mB;
+       return 0;
+    });
   
   if (validNotes.length === 0) return [];
 
-  // Detect
   const detected = Chord.detect(validNotes);
   
   if (detected.length === 0) return [];
 
-  // Preserve octave voicing from input if available for visual rendering
-  const finalNotes = assignOctaves(validNotes);
+  const hasOctaves = validNotes.some(n => /\d/.test(n));
 
-  // Map all detections to ChordData
   return detected.map(match => {
       const chordInfo = Chord.get(match);
       
-      // Fallback logic for Root: if Tonal doesn't parse tonic, try extracting from string
+      // If user typed notes with octaves, keep them (sorted).
+      // If user typed just letters ("C E G"), use Standard Voicing (Closed) for display.
+      const displayNotes = hasOctaves ? validNotes : getStandardVoicing(chordInfo.tonic || '', chordInfo.intervals);
+
       let root = chordInfo.tonic;
       if (!root) {
         const rootMatch = match.match(/^[A-G][#b]?/);
         root = rootMatch ? rootMatch[0] : '';
       }
 
-      // Determine clean symbol for display
-      // We start with the full matched string (e.g., "Am/E") and strip the root ("A")
       let cleanSymbol = '';
       if (root && match.startsWith(root)) {
-          // Careful stripping: Ensure we don't strip "A" from "Ab"
           const rootHasAccidental = root.length > 1;
           const matchNextChar = match[root.length];
-          
           if (rootHasAccidental || (matchNextChar !== '#' && matchNextChar !== 'b')) {
              cleanSymbol = match.slice(root.length);
           } else {
-             // Fallback: This shouldn't happen if Tonal works correctly
              cleanSymbol = match; 
           }
       } else {
-          // Fallback if match structure is weird
           cleanSymbol = chordInfo.symbol || '';
       }
 
-      // If symbol is just "Major" or "M", clear it.
-      // If symbol is "M/E", make it "/E".
-      // If symbol is "m/E", keep it.
-      // If symbol is "m", keep it.
-      
-      // Handle the case where cleanSymbol starts with 'M' or 'Major' 
-      // but isn't 'Maj7', 'Min' etc.
-      // E.g. "C/E" -> Root "C", cleanSymbol "/E". Correct.
-      // E.g. "CMaj7" -> Root "C", cleanSymbol "Maj7". Correct.
-      // E.g. "C" -> Root "C", cleanSymbol "". Correct.
-      
-      // Additional safety: if cleanSymbol is exactly 'M' or 'Major', clear it.
       if (['M', 'Major', 'major'].includes(cleanSymbol)) {
           cleanSymbol = '';
       }
-      
-      // Also handle slash cleanup if needed (e.g. "Major/E" -> "/E")
       if (cleanSymbol.startsWith('M/') || cleanSymbol.startsWith('Major/')) {
          cleanSymbol = cleanSymbol.replace(/^(M|Major)/, '');
       }
 
-      // Determine Name
-      const name = chordInfo.name || match; 
-
       return {
         root: root,
         symbol: cleanSymbol,
-        notes: finalNotes,
+        notes: displayNotes,
         intervals: chordInfo.intervals.length > 0 ? chordInfo.intervals : [],
-        name: name
+        name: chordInfo.name || match
       };
   });
 };
@@ -232,75 +271,44 @@ export const detectChordsFromNotes = (input: string): ChordData[] => {
  * Returns a list of potential chords that the current chord might resolve to.
  */
 export const getChordResolutions = (root: string, symbol: string): string[] => {
-  // Guard against missing root
   if (!root) return [];
-
-  // Ensure root is just the note name, strip octave if present
   const r = root.replace(/[0-9]/g, ''); 
-
-  // For resolution logic, we want the core quality, ignoring bass/inversion
-  // e.g. "m/E" -> "m", "7/F#" -> "7"
   const s = symbol ? symbol.split('/')[0] : '';
 
   try {
-      // 1. Suspended -> Resolve to Root Major or Minor
       if (s.includes('sus')) {
         return [r, `${r}m`];
       }
-
-      // 2. Dominant 7th (7, 9, 11, 13)
-      // Check if it starts with a dominant number and is NOT a major7 or minor7
-      // e.g. "7", "9", "7b9" match. "maj7", "m7" do not.
       const isDom = /^(7|9|11|13)/.test(s) && !s.includes('maj') && !s.includes('min') && !s.includes('m');
-      
       if (isDom) {
-        // V7 -> I (Perfect 4th up)
         const target = Note.transpose(r, '4P');
         return target ? [target, `${target}m`] : [];
       }
-
-      // 3. Half Diminished (m7b5) -> iiø resolves to V
       if (s === 'm7b5') {
-         // ii - V (up 4th)
          const target = Note.transpose(r, '4P');
          return target ? [`${target}7`] : [];
       }
-
-      // 4. Minor (m, m7, etc)
-      // Must check startsWith('m') but ensure it's not 'maj'
       if (s.startsWith('m') && !s.includes('maj')) {
-          // i -> bIII (Relative Major)
           const relMaj = Note.transpose(r, '3m');
-          // i -> iv (Subdominant)
           const iv = Note.transpose(r, '4P');
-          // i -> V (Dominant)
           const V = Note.transpose(r, '5P');
-          
           const result = [];
           if (relMaj) result.push(relMaj);
           if (iv) result.push(`${iv}m`);
           if (V) result.push(V);
           return result;
       }
-
-      // 5. Diminished (dim, dim7) -> Resolves up a semitone (Leading Tone)
       if (s.includes('dim')) {
          const target = Note.transpose(r, '2m');
          return target ? [target, `${target}m`] : [];
       }
-      
-      // 6. Augmented -> V+ resolves to I (4th up)
       if (s.includes('aug')) {
          const target = Note.transpose(r, '4P');
          return target ? [target] : [];
       }
-
-      // 7. Major (Triad, maj7, add9, etc) - Default
-      // I -> IV, V, vi
       const IV = Note.transpose(r, '4P');
       const V = Note.transpose(r, '5P');
       const vi = Note.transpose(r, '6M');
-      
       const result = [];
       if (IV) result.push(IV);
       if (V) result.push(V);
@@ -314,8 +322,7 @@ export const getChordResolutions = (root: string, symbol: string): string[] => {
 };
 
 /**
- * Parses a chord string (e.g. "G7") into its root and symbol components (e.g. "G", "7").
- * Validates against the supported ROOT_NOTES list, handling enharmonics if necessary.
+ * Parses a chord string (e.g. "G7") into its root and symbol components.
  */
 export const parseChord = (chordName: string): { root: string, symbol: string } | null => {
   const chord = Chord.get(chordName);
@@ -324,21 +331,15 @@ export const parseChord = (chordName: string): { root: string, symbol: string } 
   let root = chord.tonic || '';
   const symbol = sanitizeSymbol(chord.symbol, root);
 
-  // 1. Direct match check
-  // (We use 'as string' casting for comparison, assuming ROOT_NOTES contains strings)
   const exactMatch = ROOT_NOTES.find(r => r === root);
   if (exactMatch) {
     return { root: exactMatch, symbol };
   }
-
-  // 2. Enharmonic match check (e.g. if Tonal returns "Gb" but we only support "F#")
   const enharmonic = Note.enharmonic(root);
   const enharmonicMatch = ROOT_NOTES.find(r => r === enharmonic);
   if (enharmonicMatch) {
     return { root: enharmonicMatch, symbol };
   }
-
-  // 3. Fallback (return original, UI might fail to highlight root but will still load)
   return { root, symbol };
 };
 
@@ -346,5 +347,26 @@ export const parseChord = (chordName: string): { root: string, symbol: string } 
  * Generates actual chord names from Roman Numerals in a given key.
  */
 export const getProgressionChords = (key: string, numerals: string[]): string[] => {
-  return Progression.fromRomanNumerals(key, numerals);
+  const chords = Progression.fromRomanNumerals(key, numerals);
+  
+  return chords.map((chordName, i) => {
+    const roman = numerals[i];
+    const coreRoman = roman.replace(/^[b#]+/, '');
+    const firstChar = coreRoman.charAt(0);
+    const isLowerCase = (firstChar === firstChar.toLowerCase()) && (firstChar !== firstChar.toUpperCase());
+    
+    if (isLowerCase) {
+         const c = Chord.get(chordName);
+         if (!c.empty) {
+            const isMajor = c.intervals.includes('3M');
+            if (isMajor) {
+               let newSymbol = 'm';
+               if (c.symbol === '7') newSymbol = 'm7';
+               if (c.symbol === 'maj7') newSymbol = 'm7'; 
+               return c.tonic + newSymbol;
+            }
+         }
+    }
+    return chordName;
+  });
 };

@@ -13,7 +13,8 @@
     "react-dom": "^19.2.3",
     "react": "^19.2.3",
     "vexflow": "4.2.3",
-    "tonal": "4.10.0"
+    "tonal": "4.10.0",
+    "tone": "14.7.77"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
