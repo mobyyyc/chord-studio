@@ -1,0 +1,5 @@
+{
+  "name": "Minimalist Chord Studio",
+  "description": "A premium, minimalist interactive chord library and detector using React, Tailwind, Tonal.js, and VexFlow.",
+  "requestFramePermissions": []
+}
