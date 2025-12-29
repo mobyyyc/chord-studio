@@ -111,6 +111,100 @@ const getNaturalVoicing = (root: string, intervals: string[]): string[] => {
 };
 
 /**
+ * GUITAR LOGIC
+ * Returns an array of 6 numbers for strings E A D G B E.
+ * -1 = Mute, 0 = Open, >0 = Fret number.
+ */
+const OPEN_CHORDS: Record<string, number[]> = {
+  // Majors
+  'C': [-1, 3, 2, 0, 1, 0],
+  'A': [-1, 0, 2, 2, 2, 0],
+  'G': [3, 2, 0, 0, 0, 3],
+  'E': [0, 2, 2, 1, 0, 0],
+  'D': [-1, -1, 0, 2, 3, 2],
+  
+  // Minors
+  'Am': [-1, 0, 2, 2, 1, 0],
+  'Em': [0, 2, 2, 0, 0, 0],
+  'Dm': [-1, -1, 0, 2, 3, 1],
+  
+  // 7ths
+  'C7': [-1, 3, 2, 3, 1, 0],
+  'A7': [-1, 0, 2, 0, 2, 0],
+  'G7': [3, 2, 0, 0, 0, 1],
+  'E7': [0, 2, 0, 1, 0, 0],
+  'D7': [-1, -1, 0, 2, 1, 2],
+  'B7': [-1, 2, 1, 2, 0, 2], // Common open B7
+
+  // Major 7ths
+  'Cmaj7': [-1, 3, 2, 0, 0, 0],
+  'Amaj7': [-1, 0, 2, 1, 2, 0],
+  'Gmaj7': [3, 2, 0, 0, 0, 2],
+  'Emaj7': [0, 2, 1, 1, 0, 0], // Not super common open, but exists
+  'Dmaj7': [-1, -1, 0, 2, 2, 2],
+};
+
+const BARRE_SHAPES: Record<string, { baseRoot: string, shape: number[], stringRoot: number }> = {
+  // E-Shape Barre (Root on String 6)
+  '': { baseRoot: 'E', shape: [0, 2, 2, 1, 0, 0], stringRoot: 6 }, 
+  'm': { baseRoot: 'E', shape: [0, 2, 2, 0, 0, 0], stringRoot: 6 },
+  '7': { baseRoot: 'E', shape: [0, 2, 0, 1, 0, 0], stringRoot: 6 },
+  'm7': { baseRoot: 'E', shape: [0, 2, 0, 0, 0, 0], stringRoot: 6 },
+  'maj7': { baseRoot: 'E', shape: [0, 2, 1, 1, 0, 0], stringRoot: 6 }, // Emaj7 shape
+
+  // A-Shape Barre (Root on String 5) - used as alternate or if root is high
+  // Note: Standard A shape is x02220. We will map others relative to this.
+};
+
+export const getGuitarVoicing = (root: string, symbol: string): number[] => {
+  const cleanSymbol = symbol === 'major' || symbol === 'M' ? '' : symbol;
+  const key = `${root}${cleanSymbol}`;
+  
+  // 1. Check strict Open Chords first (The "Cowboy Chords")
+  if (OPEN_CHORDS[key]) {
+    return OPEN_CHORDS[key];
+  }
+
+  // 2. If no open chord, calculate Barre Chord
+  // Default to E-shape barre (Root on 6th string) as it's most versatile
+  // Note: Root on 6th string (E) -> F is fret 1, G is 3, A is 5.
+  
+  // Find semitones from E
+  const dist = Interval.semitones(Interval.distance('E', root));
+  
+  // E-shape base
+  // We need to map symbols to basic shapes.
+  // If symbol is complex (e.g. 'm9'), simplify to 'm' or 'm7' for visualization fallback
+  let shapeKey = cleanSymbol;
+  if (!BARRE_SHAPES[shapeKey]) {
+     if (shapeKey.includes('maj7')) shapeKey = 'maj7';
+     else if (shapeKey.includes('m7')) shapeKey = 'm7';
+     else if (shapeKey.includes('m')) shapeKey = 'm';
+     else if (shapeKey.includes('7')) shapeKey = '7';
+     else shapeKey = ''; // Default to Major
+  }
+
+  const template = BARRE_SHAPES[shapeKey];
+  
+  if (template) {
+    const shift = dist < 0 ? dist + 12 : dist; // Ensure positive shift
+    
+    // Apply shift to the template shape
+    // Note: Muted strings (-1) remain -1. Open strings (0) in the *Shape* become the barre fret.
+    // Actually, strictly speaking, E-shape [0, 2, 2, 1, 0, 0] shifted up 1 fret becomes [1, 3, 3, 2, 1, 1].
+    // So we add 'shift' to every non-negative number.
+    return template.shape.map(fret => {
+        if (fret === -1) return -1;
+        return fret + shift;
+    });
+  }
+
+  // Fallback: Muted
+  return [-1, -1, -1, -1, -1, -1];
+};
+
+
+/**
  * Generates chord data for a given root and type symbol.
  */
 export const getChordData = (root: string, typeSymbol: string): ChordData | null => {

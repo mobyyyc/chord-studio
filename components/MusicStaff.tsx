@@ -62,7 +62,7 @@ const MusicStaff: React.FC<MusicStaffProps> = ({ notes, clef = 'treble', isDarkM
       // Use dimensions.width but cap max width for aesthetics
       // Ensure we leave padding on small screens
       const padding = 10;
-      const maxStaveWidth = 350;
+      const maxStaveWidth = 200; // Reduced to 200 for a more compact, minimalist look
       const availableWidth = Math.max(dimensions.width - (padding * 2), 100);
       const staveWidth = Math.min(availableWidth, maxStaveWidth);
       

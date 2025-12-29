@@ -5,7 +5,7 @@ import {
   Moon, 
   Sun, 
   Menu, 
-  Info,
+  Info, 
   Piano as PianoIcon,
   X,
   BookOpen,
@@ -15,13 +15,15 @@ import {
   ChevronDown,
   Volume2,
   Loader2,
-  Bot
+  Bot,
+  Guitar
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { ROOT_NOTES, CHORD_TYPES, PROGRESSIONS, FEATURED_CHORDS } from './constants';
-import { getChordData, detectChordsFromNotes, getChordResolutions, parseChord, getProgressionChords, getFeaturedChordData, getVoicing, getProgressionVoicings } from './services/musicLogic';
+import { getChordData, detectChordsFromNotes, getChordResolutions, parseChord, getProgressionChords, getFeaturedChordData, getVoicing, getProgressionVoicings, getGuitarVoicing } from './services/musicLogic';
 import { playChord, playProgression } from './services/audio';
 import MusicStaff from './components/MusicStaff';
+import GuitarFretboard from './components/GuitarFretboard';
 import Piano from './components/Piano';
 import { ChordData, RootNote, ChordDefinition } from './types';
 
@@ -31,6 +33,9 @@ function App() {
   
   // App Mode - Defaults to 'showcase' as landing page
   const [mode, setMode] = useState<'library' | 'detector' | 'progressions' | 'showcase'>('showcase');
+
+  // Visualization State (Piano/Staff vs Guitar)
+  const [visualMode, setVisualMode] = useState<'piano' | 'guitar'>('piano');
 
   // Library State
   const [selectedRoot, setSelectedRoot] = useState<RootNote>('C');
@@ -241,8 +246,13 @@ function App() {
                </p>
              </div>
 
-             {/* Visual Staff Card - Added min-h-[260px] to prevent clipping on mobile */}
-             <div className="relative w-full max-w-2xl min-h-[260px] aspect-[16/10] md:aspect-video bg-white/60 dark:bg-zinc-900/60 backdrop-blur-2xl rounded-3xl border border-white/20 dark:border-white/10 shadow-2xl flex items-center justify-center p-4 sm:p-6 md:p-10 animate-slide-up animation-delay-200 hover:scale-[1.01] transition-transform duration-500 opacity-0 group mx-auto">
+             {/* Visual Staff Card - Showcase View */}
+             <div className="relative w-full max-w-lg min-h-[220px] bg-white/60 dark:bg-zinc-900/60 backdrop-blur-2xl rounded-3xl border border-white/20 dark:border-white/10 shadow-2xl flex items-center justify-center p-6 sm:p-8 animate-slide-up animation-delay-200 hover:scale-[1.01] transition-transform duration-500 opacity-0 group mx-auto">
+                 {/* Showcase supports toggle too if needed, but defaults to Piano for cinematic look. 
+                     If you want toggle here, we can add it, but usually Showcase is curated.
+                     Let's keep Showcase as Piano (Staff) for elegance, but support guitar if desired in future.
+                     For now, sticking to Staff as per previous design.
+                 */}
                  <MusicStaff notes={activeChordData?.notes || []} isDarkMode={isDarkMode} />
                  
                  {/* Play Button Overlay */}
@@ -729,11 +739,38 @@ function App() {
                 
                 {/* Visual Representation */}
                 <div className="relative flex flex-col items-center justify-center min-h-[240px] md:min-h-[300px] bg-gray-50 dark:bg-zinc-950/50 rounded-xl md:rounded-2xl border border-gray-100 dark:border-zinc-800/50 transition-colors duration-500 overflow-hidden">
+                  
+                  {/* Visualization Toggle */}
+                  <div className="absolute top-4 left-4 z-20 flex bg-white/50 dark:bg-black/20 backdrop-blur-sm p-1 rounded-lg border border-gray-200 dark:border-zinc-800">
+                     <button
+                       onClick={() => setVisualMode('piano')}
+                       className={`p-1.5 rounded-md transition-all ${visualMode === 'piano' ? 'bg-white dark:bg-zinc-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+                       title="Staff View"
+                     >
+                       <PianoIcon size={16} />
+                     </button>
+                     <button
+                       onClick={() => setVisualMode('guitar')}
+                       className={`p-1.5 rounded-md transition-all ${visualMode === 'guitar' ? 'bg-white dark:bg-zinc-700 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-gray-400 dark:text-zinc-500 hover:text-gray-600'}`}
+                       title="Guitar View"
+                     >
+                       <Guitar size={16} />
+                     </button>
+                  </div>
+
                   <div className="w-full h-full flex items-center justify-center p-4">
-                     <MusicStaff 
-                       notes={activeChordData.notes} 
-                       isDarkMode={isDarkMode} 
-                     />
+                     {visualMode === 'piano' ? (
+                       <MusicStaff 
+                         notes={activeChordData.notes} 
+                         isDarkMode={isDarkMode} 
+                       />
+                     ) : (
+                       <GuitarFretboard 
+                         chordName={`${activeChordData.root}${activeChordData.symbol}`} 
+                         voicing={getGuitarVoicing(activeChordData.root, activeChordData.symbol)}
+                         isDarkMode={isDarkMode}
+                       />
+                     )}
                   </div>
                   <button 
                       onClick={() => activeChordData && playChord(activeChordData.notes)}
