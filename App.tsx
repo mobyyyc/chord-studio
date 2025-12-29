@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Music, 
   Search, 
@@ -16,7 +16,11 @@ import {
   Volume2,
   Loader2,
   Bot,
-  Guitar
+  Guitar,
+  Plus,
+  Play,
+  Trash2,
+  ListPlus
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { ROOT_NOTES, CHORD_TYPES, PROGRESSIONS, FEATURED_CHORDS } from './constants';
@@ -50,8 +54,12 @@ function App() {
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
-  // Progression State
+  // Progression State (Preset)
   const [progressionRoot, setProgressionRoot] = useState<RootNote>('C');
+
+  // User Builder State
+  const [userProgression, setUserProgression] = useState<ChordData[]>([]);
+  const progressionBarRef = useRef<HTMLDivElement>(null);
 
   // Showcase State
   const [featuredIndex, setFeaturedIndex] = useState(0);
@@ -94,6 +102,8 @@ function App() {
     if (!activeChordData) return [];
     return getChordResolutions(activeChordData.root, activeChordData.symbol);
   }, [activeChordData]);
+
+  // --- ACTIONS ---
 
   // Handle Detector Submit
   const handleDetectorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,6 +189,27 @@ function App() {
     }
   };
 
+  // Builder Logic
+  const addToProgression = (chord: ChordData) => {
+    setUserProgression(prev => [...prev, chord]);
+    // Optional: Visual feedback or scroll to end
+    setTimeout(() => {
+        if (progressionBarRef.current) {
+            progressionBarRef.current.scrollLeft = progressionBarRef.current.scrollWidth;
+        }
+    }, 100);
+  };
+
+  const removeFromProgression = (index: number) => {
+    setUserProgression(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const playCustomSequence = () => {
+    if (userProgression.length === 0) return;
+    const sequence = userProgression.map(c => c.notes);
+    playProgression(sequence);
+  };
+
   const handleNextFeatured = () => {
     setFeaturedIndex((prev) => (prev + 1) % FEATURED_CHORDS.length);
   };
@@ -198,7 +229,7 @@ function App() {
   // --- SPECIAL LAYOUT FOR SHOWCASE MODE ---
   if (mode === 'showcase') {
     return (
-      <div className="relative min-h-[100dvh] w-full bg-gray-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans flex flex-col items-center justify-center transition-colors duration-500 overflow-x-hidden">
+      <div className="relative min-h-[100dvh] w-full bg-gray-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans flex flex-col items-center justify-center transition-colors duration-500 overflow-x-hidden pb-40">
         
         {/* Animated Background - Fixed so it covers scrollable area */}
         <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
@@ -248,21 +279,25 @@ function App() {
 
              {/* Visual Staff Card - Showcase View */}
              <div className="relative w-full max-w-lg min-h-[220px] bg-white/60 dark:bg-zinc-900/60 backdrop-blur-2xl rounded-3xl border border-white/20 dark:border-white/10 shadow-2xl flex items-center justify-center p-6 sm:p-8 animate-slide-up animation-delay-200 hover:scale-[1.01] transition-transform duration-500 opacity-0 group mx-auto">
-                 {/* Showcase supports toggle too if needed, but defaults to Piano for cinematic look. 
-                     If you want toggle here, we can add it, but usually Showcase is curated.
-                     Let's keep Showcase as Piano (Staff) for elegance, but support guitar if desired in future.
-                     For now, sticking to Staff as per previous design.
-                 */}
                  <MusicStaff notes={activeChordData?.notes || []} isDarkMode={isDarkMode} />
                  
-                 {/* Play Button Overlay */}
-                 <button 
-                    onClick={() => activeChordData && playChord(activeChordData.notes)}
-                    className="absolute top-4 right-4 md:top-6 md:right-6 p-3 md:p-4 rounded-full bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 hover:scale-110 active:scale-95 transition-all duration-200 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:transform md:translate-y-2 md:group-hover:translate-y-0"
-                    title="Play Chord"
-                 >
-                    <Volume2 size={24} />
-                 </button>
+                 {/* Overlay Actions */}
+                 <div className="absolute top-4 right-4 md:top-6 md:right-6 flex flex-col gap-3 md:opacity-0 md:group-hover:opacity-100 md:transform md:translate-y-2 md:group-hover:translate-y-0 transition-all duration-300">
+                    <button 
+                        onClick={() => activeChordData && playChord(activeChordData.notes)}
+                        className="p-3 md:p-4 rounded-full bg-indigo-600 text-white shadow-xl hover:bg-indigo-700 hover:scale-110 active:scale-95 transition-all duration-200"
+                        title="Play Chord"
+                    >
+                        <Volume2 size={24} />
+                    </button>
+                    <button 
+                        onClick={() => activeChordData && addToProgression(activeChordData)}
+                        className="p-3 md:p-4 rounded-full bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xl hover:bg-gray-50 dark:hover:bg-zinc-700 hover:scale-110 active:scale-95 transition-all duration-200 border border-gray-100 dark:border-zinc-700"
+                        title="Add to Builder"
+                    >
+                        <Plus size={24} />
+                    </button>
+                 </div>
              </div>
 
              {/* Description */}
@@ -304,6 +339,68 @@ function App() {
           </div>
 
         </div>
+
+        {/* Persistent Progression Builder Bottom Sheet */}
+        {userProgression.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 lg:left-72 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-gray-200 dark:border-zinc-800 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] animate-slide-up-drawer flex flex-col sm:flex-row items-center p-3 sm:p-4 gap-4 safe-area-bottom pb-6">
+             
+             {/* Main Controls - Left on desktop, Top row on mobile */}
+             <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:border-r border-gray-200 dark:border-zinc-700 sm:pr-4">
+                <div className="flex items-center gap-2">
+                    <button 
+                    onClick={playCustomSequence}
+                    className="p-3 sm:p-4 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all shadow-md flex-shrink-0"
+                    title="Play Sequence"
+                    >
+                    <Play size={20} fill="currentColor" />
+                    </button>
+                    <div className="flex flex-col">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Builder</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{userProgression.length} Chords</span>
+                    </div>
+                </div>
+
+                <button 
+                   onClick={() => setUserProgression([])}
+                   className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all sm:hidden"
+                   title="Clear All"
+                >
+                   <Trash2 size={20} />
+                </button>
+             </div>
+
+             {/* Scrollable List */}
+             <div 
+               ref={progressionBarRef}
+               className="w-full flex-1 flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth px-1"
+             >
+                {userProgression.map((chord, idx) => (
+                   <div 
+                     key={idx} 
+                     className="shrink-0 flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-zinc-800/50 rounded-xl border border-gray-100 dark:border-zinc-700 shadow-sm whitespace-nowrap"
+                   >
+                      <span className="font-bold text-base md:text-lg">{chord.root}<span className="text-indigo-600 dark:text-indigo-400">{chord.symbol}</span></span>
+                      
+                      <button 
+                        onClick={() => removeFromProgression(idx)}
+                        className="ml-2 p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all"
+                      >
+                         <X size={14} />
+                      </button>
+                   </div>
+                ))}
+             </div>
+             
+             {/* Desktop Clear Button */}
+             <button 
+                onClick={() => setUserProgression([])}
+                className="hidden sm:block p-3 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all flex-shrink-0"
+                title="Clear All"
+             >
+                <Trash2 size={20} />
+             </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -461,8 +558,8 @@ function App() {
           </button>
         </header>
 
-        {/* Workspace - More Padding */}
-        <div className="flex-1 overflow-y-auto p-6 sm:p-10 lg:p-14 flex flex-col items-center justify-start min-h-0">
+        {/* Workspace - More Padding + pb-40 for Builder Bar */}
+        <div className="flex-1 overflow-y-auto p-6 sm:p-10 lg:p-14 pb-40 flex flex-col items-center justify-start min-h-0">
           
           {/* Keyed Container for Page Transitions */}
           <div key={mode} className="w-full max-w-6xl space-y-10 lg:space-y-16 animate-slide-up-fade opacity-0 pb-12">
@@ -478,13 +575,22 @@ function App() {
                         <span className="text-indigo-600 dark:text-indigo-400">{selectedType}</span>
                        </h2>
                        {activeChordData && (
-                          <button 
+                        <div className="flex items-center gap-3 mt-4 md:mt-0">
+                           <button 
                             onClick={() => playChord(activeChordData.notes)}
-                            className="mt-4 md:mt-0 p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105 shadow-sm"
+                            className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105 shadow-sm"
                             aria-label="Play Chord"
                           >
                              <Volume2 size={28} />
                           </button>
+                           <button 
+                            onClick={() => addToProgression(activeChordData!)}
+                            className="p-4 rounded-full bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-zinc-700 transition-all duration-200 active:scale-95 hover:scale-105 shadow-sm"
+                            aria-label="Add to Builder"
+                          >
+                             <Plus size={28} />
+                          </button>
+                        </div>
                        )}
                     </div>
                     <p className="text-gray-500 dark:text-zinc-400 text-xl md:text-2xl animate-slide-up-fade animation-delay-100 opacity-0">
@@ -550,13 +656,22 @@ function App() {
                                   {activeChordData.root}
                                   <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
                                  </h3>
-                                 <button 
-                                    onClick={() => activeChordData && playChord(activeChordData.notes)}
-                                    className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
-                                    aria-label="Play Detected Chord"
-                                 >
-                                    <Volume2 size={28} />
-                                 </button>
+                                 <div className="flex gap-2">
+                                     <button 
+                                        onClick={() => activeChordData && playChord(activeChordData.notes)}
+                                        className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
+                                        aria-label="Play Detected Chord"
+                                     >
+                                        <Volume2 size={28} />
+                                     </button>
+                                     <button 
+                                        onClick={() => activeChordData && addToProgression(activeChordData)}
+                                        className="p-4 rounded-full bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-zinc-700 transition-all duration-200 active:scale-95 hover:scale-105"
+                                        aria-label="Add to Builder"
+                                     >
+                                        <Plus size={28} />
+                                     </button>
+                                 </div>
                                </div>
                                
                                {/* Candidate Dropdown */}
@@ -843,9 +958,70 @@ function App() {
             <p>© {new Date().getFullYear()} Minimalist Chord Studio.</p>
           </footer>
         </div>
-      </main>
-    </div>
-  );
-}
+
+        {/* Persistent Progression Builder Bottom Sheet */}
+        {userProgression.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 lg:left-72 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-t border-gray-200 dark:border-zinc-800 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] animate-slide-up-drawer flex flex-col sm:flex-row items-center p-3 sm:p-4 gap-4 safe-area-bottom pb-6">
+             
+             {/* Main Controls - Left on desktop, Top row on mobile */}
+             <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:border-r border-gray-200 dark:border-zinc-700 sm:pr-4">
+                <div className="flex items-center gap-2">
+                    <button 
+                    onClick={playCustomSequence}
+                    className="p-3 sm:p-4 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95 transition-all shadow-md flex-shrink-0"
+                    title="Play Sequence"
+                    >
+                    <Play size={20} fill="currentColor" />
+                    </button>
+                    <div className="flex flex-col">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Builder</span>
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{userProgression.length} Chords</span>
+                    </div>
+                </div>
+
+                <button 
+                   onClick={() => setUserProgression([])}
+                   className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all sm:hidden"
+                   title="Clear All"
+                >
+                   <Trash2 size={20} />
+                </button>
+             </div>
+
+             {/* Scrollable List */}
+             <div 
+               ref={progressionBarRef}
+               className="w-full flex-1 flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth px-1"
+             >
+                {userProgression.map((chord, idx) => (
+                   <div 
+                     key={idx} 
+                     className="shrink-0 flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-zinc-800/50 rounded-xl border border-gray-100 dark:border-zinc-700 shadow-sm whitespace-nowrap"
+                   >
+                      <span className="font-bold text-base md:text-lg">{chord.root}<span className="text-indigo-600 dark:text-indigo-400">{chord.symbol}</span></span>
+                      
+                      <button 
+                        onClick={() => removeFromProgression(idx)}
+                        className="ml-2 p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all"
+                      >
+                         <X size={14} />
+                      </button>
+                   </div>
+                ))}
+             </div>
+             
+             {/* Desktop Clear Button */}
+             <button 
+                onClick={() => setUserProgression([])}
+                className="hidden sm:block p-3 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all flex-shrink-0"
+                title="Clear All"
+             >
+                <Trash2 size={20} />
+             </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
 export default App;
