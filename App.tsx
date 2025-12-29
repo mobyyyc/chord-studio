@@ -650,37 +650,40 @@ function App() {
                         {/* Chord Detected Display */}
                         {activeChordData && (
                            <div className="mb-6 animate-scale-in flex flex-col items-center opacity-0 px-4 text-center">
-                             <div className="flex flex-col sm:flex-row items-center gap-6">
-                               <div className="flex items-center gap-4">
+                             {/* Row 1: Name and Play */}
+                             <div className="flex items-center gap-4 mb-3">
                                  <h3 className="text-5xl sm:text-6xl font-bold tracking-tighter text-gray-900 dark:text-white">
                                   {activeChordData.root}
                                   <span className="text-indigo-600 dark:text-indigo-400">{activeChordData.symbol}</span>
                                  </h3>
-                                 <div className="flex gap-2">
-                                     <button 
-                                        onClick={() => activeChordData && playChord(activeChordData.notes)}
-                                        className="p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
-                                        aria-label="Play Detected Chord"
-                                     >
-                                        <Volume2 size={28} />
-                                     </button>
-                                     <button 
-                                        onClick={() => activeChordData && addToProgression(activeChordData)}
-                                        className="p-4 rounded-full bg-white dark:bg-zinc-800 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-zinc-700 transition-all duration-200 active:scale-95 hover:scale-105"
-                                        aria-label="Add to Builder"
-                                     >
-                                        <Plus size={28} />
-                                     </button>
-                                 </div>
-                               </div>
+                                 <button 
+                                    onClick={() => activeChordData && playChord(activeChordData.notes)}
+                                    className="p-3 sm:p-4 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-all duration-200 active:scale-95 hover:scale-105"
+                                    aria-label="Play Detected Chord"
+                                 >
+                                    <Volume2 size={24} className="sm:w-7 sm:h-7" />
+                                 </button>
+                             </div>
+                             
+                             {/* Row 2: Controls (Plus + Dropdown) */}
+                             <div className="flex flex-wrap items-center justify-center gap-3 w-full">
                                
+                               <button 
+                                  onClick={() => activeChordData && addToProgression(activeChordData)}
+                                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white dark:bg-zinc-800 text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 border border-gray-200 dark:border-zinc-700 transition-all duration-200 active:scale-95 hover:shadow-md font-medium"
+                                  aria-label="Add to Builder"
+                               >
+                                  <Plus size={20} />
+                                  <span>Add</span>
+                               </button>
+
                                {/* Candidate Dropdown */}
                                {detectorCandidates.length > 1 && (
-                                 <div className="relative group w-full sm:w-auto mt-4 sm:mt-0">
+                                 <div className="relative group">
                                     <select 
                                       value={selectedCandidateIndex}
                                       onChange={(e) => setSelectedCandidateIndex(Number(e.target.value))}
-                                      className="appearance-none w-full sm:w-auto bg-gray-100 dark:bg-zinc-800 border-transparent rounded-lg py-3 pl-4 pr-10 text-base font-medium text-gray-700 dark:text-gray-200 cursor-pointer focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-shadow hover:bg-gray-200 dark:hover:bg-zinc-700"
+                                      className="appearance-none bg-gray-100 dark:bg-zinc-800 border-transparent rounded-xl py-3 pl-4 pr-10 text-base font-medium text-gray-700 dark:text-gray-200 cursor-pointer focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-shadow hover:bg-gray-200 dark:hover:bg-zinc-700 min-w-[180px]"
                                     >
                                       {detectorCandidates.map((candidate, idx) => (
                                         <option key={idx} value={idx}>
@@ -692,7 +695,8 @@ function App() {
                                  </div>
                                )}
                              </div>
-                             <p className="text-gray-500 dark:text-zinc-400 mt-3 text-lg font-medium">
+
+                             <p className="text-gray-500 dark:text-zinc-400 mt-4 text-lg font-medium">
                                {activeChordData.name || 'Detected Chord'}
                                {detectorCandidates.length > 1 && (
                                  <span className="text-xs bg-gray-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full ml-3 align-middle">
